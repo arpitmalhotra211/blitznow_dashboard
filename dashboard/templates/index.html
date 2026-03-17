@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Log Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: Arial; text-align: center; margin: 20px; }
+
+        h2 { margin-bottom: 20px; }
+
+        #uploadSection { margin-bottom: 30px; }
+
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+        }
+
+        .chart-card {
+            width: 400px;
+            height: 300px;
+            padding: 10px;
+            background: #f8f8f8;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .chart-card.large {
+            width: 800px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .analytics-summary {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+
+        .summary-card {
+            width: 220px;
+            padding: 15px;
+            background: #e8eaf6;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        }
+
+        ul {
+            text-align: left;
+            padding-left: 20px;
+        }
+
+        button {
+            padding: 8px 16px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>📊 Log Analytics Dashboard</h2>
+
+<div id="uploadSection">
+    <input type="file" id="fileInput">
+    <button onclick="uploadFile()">Upload Log File</button>
+</div>
+
+<div class="dashboard">
+    <div class="chart-card">
+        <canvas id="levelChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+        <canvas id="componentChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+        <canvas id="serviceChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+        <canvas id="errorRateChart"></canvas>
+    </div>
+
+    <div class="chart-card large">
+        <canvas id="timelineChart"></canvas>
+    </div>
+</div>
+
+<div class="analytics-summary">
+    <div class="summary-card">
+        <h3 id="totalLogs">0</h3>
+        <p>Total Logs</p>
+    </div>
+
+    <div class="summary-card">
+        <h3 id="errorCount">0</h3>
+        <p>Total Errors</p>
+    </div>
+
+    <div class="summary-card">
+        <h3 id="errorRate">0%</h3>
+        <p>Error Rate</p>
+    </div>
+
+    <div class="summary-card" style="width:400px;">
+        <h3>Top Errors</h3>
+        <ul id="topErrors"></ul>
+    </div>
+</div>
+
+<script>
+let levelChart, componentChart, serviceChart, errorRateChart, timelineChart;
+
+async function uploadFile() {
+    const file = document.getElementById("fileInput").files[0];
+
+    if (!file) {
+        alert("Select a file.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await response.json();
+
+    if (!data.levels || Object.keys(data.levels).length === 0) {
+        alert("No valid log data found.");
+        return;
+    }
+
+    renderAnalytics(data);
+}
+
+function renderAnalytics(data) {
+
+    // ===== Summary =====
+    const total = Object.values(data.levels).reduce((a,b)=>a+b,0);
+    const errors = data.levels.ERROR || 0;
+
+    document.getElementById("totalLogs").innerText = total;
+    document.getElementById("errorCount").innerText = errors;
+    document.getElementById("errorRate").innerText =
+        total === 0 ? "0%" : ((errors/total)*100).toFixed(2) + "%";
+
+    // ===== Destroy old charts =====
+    if (levelChart) levelChart.destroy();
+    if (componentChart) componentChart.destroy();
+    if (serviceChart) serviceChart.destroy();
+    if (errorRateChart) errorRateChart.destroy();
+    if (timelineChart) timelineChart.destroy();
+
+    // ===== Level Pie =====
+    levelChart = new Chart(document.getElementById("levelChart"), {
+        type: 'pie',
+        data: {
+            labels: Object.keys(data.levels),
+            datasets: [{
+                data: Object.values(data.levels),
+                backgroundColor: ["#36A2EB","#FF6384","#FFCE56","#4BC0C0"]
+            }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+    });
+
+    // ===== Component Bar =====
+    componentChart = new Chart(document.getElementById("componentChart"), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(data.components),
+            datasets: [{
+                label: 'Logs per Component',
+                data: Object.values(data.components)
+            }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+    });
+
+    // ===== Service Bar =====
+    serviceChart = new Chart(document.getElementById("serviceChart"), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(data.services),
+            datasets: [{
+                label: 'Logs per Service',
+                data: Object.values(data.services)
+            }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+    });
+
+    // ===== Error Rate =====
+    errorRateChart = new Chart(document.getElementById("errorRateChart"), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(data.error_rate_per_component),
+            datasets: [{
+                label: 'Error % per Component',
+                data: Object.values(data.error_rate_per_component)
+            }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+    });
+
+    // ===== Timeline =====
+    timelineChart = new Chart(document.getElementById("timelineChart"), {
+        type: 'line',
+        data: {
+            labels: Object.keys(data.timeline),
+            datasets: [{
+                label: 'Logs over time',
+                data: Object.values(data.timeline)
+            }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+    });
+
+    // ===== Top Errors =====
+    const list = document.getElementById("topErrors");
+    list.innerHTML = "";
+
+    Object.entries(data.top_errors).forEach(([msg, count]) => {
+        const li = document.createElement("li");
+        li.innerText = `${msg} (${count})`;
+        list.appendChild(li);
+    });
+}
+</script>
+
+</body>
+</html>
